@@ -9,7 +9,7 @@ import joblib
 # ---------------------------------------------------
 # Title & Introduction
 # ---------------------------------------------------
-st.title("📈 Body Temperature Analysis Tool")
+st.title("📈 Fever Prediction Model in Children")
 
 st.markdown("""
 **App Description:**  
@@ -109,9 +109,9 @@ if not df.empty:
 
         threshold = 0.5
         if pred_prob >= threshold:
-            st.success(f"Prediction: Fever likely (Score/Probability={pred_prob:.3f} ≥ {threshold})")
+            st.success(f"Prediction: Fever expected in the coming day (Score/Probability={pred_prob:.3f} ≥ {threshold})")
         else:
-            st.info(f"Prediction: No fever expected (Score/Probability={pred_prob:.3f} < {threshold})")
+            st.info(f"Prediction: No fever expected in the coming day (Score/Probability={pred_prob:.3f} < {threshold})")
 
     except FileNotFoundError as e:
         st.error(f"Missing model file: {e.filename}")
@@ -152,6 +152,7 @@ if not df.empty:
 
 else:
     st.info("⬆️ Please upload a CSV file or fill in temperatures manually to begin analysis.")
+
 
 
 
