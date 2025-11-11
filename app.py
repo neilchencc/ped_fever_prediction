@@ -139,8 +139,9 @@ if not df.empty:
         # ----------------------
         st.write("### 🧾 Data Preview (Last 24h)")
         df_preview = df_24h.copy()
-        df_preview["Time"] = df_preview["DateTime"].dt.strftime("%H:%M")  # 格式化時間顯示
-        st.dataframe(df_preview[["Time", "Temperature"]])
+        df_preview["Date"] = df_preview["DateTime"].dt.strftime("%Y-%m-%d")
+        df_preview["Time"] = df_preview["DateTime"].dt.strftime("%H:%M")
+        st.dataframe(df_preview[["Date", "Time", "Temperature"]])
 
         # ----------------------
         # Temperature Trend Plot
@@ -159,6 +160,7 @@ if not df.empty:
 
 else:
     st.info("⬆️ Please upload a CSV file or fill in temperatures manually to begin analysis.")
+
 
 
 
