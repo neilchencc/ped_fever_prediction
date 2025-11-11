@@ -132,6 +132,7 @@ if uploaded_file is not None:
 
             fig, ax = plt.subplots()
             ax.plot(df_range["DateTime"], df_range["Temperature"], marker='o')
+            ax.axhline(y=38, color='darkred', linestyle='--', linewidth=2, label="Fever Threshold (38°C)")  # 🔥 Dark red line
             ax.set_ylim(35, 43)
             ax.set_xlabel("Time")
             ax.set_ylabel("Temperature (°C)")
@@ -140,6 +141,7 @@ if uploaded_file is not None:
 
 else:
     st.info("⬆️ Please upload a CSV file to begin analysis.")
+
 
 
 
