@@ -9,7 +9,7 @@ import joblib
 # ---------------------------------------------------
 # Title & Introduction
 # ---------------------------------------------------
-st.title("📈 Body Temperature Analysis Tool (CSV Upload / Manual Entry + Normalization + Prediction)")
+st.title("📈 Body Temperature Analysis Tool")
 
 st.markdown("""
 **App Description:**  
@@ -152,6 +152,7 @@ if not df.empty:
 
 else:
     st.info("⬆️ Please upload a CSV file or fill in temperatures manually to begin analysis.")
+
 
 
 
