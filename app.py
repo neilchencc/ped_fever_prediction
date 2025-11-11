@@ -56,7 +56,7 @@ if input_method == "Upload CSV file":
             df = pd.DataFrame(columns=["Date", "Time", "Temperature"])
 
 # ----------------------
-# Manual Entry as Editable DataFrame
+# Manual Entry
 # ----------------------
 elif input_method == "Manual Entry":
     st.subheader("Manual Data Entry (editable table)")
@@ -80,7 +80,7 @@ elif input_method == "Manual Entry":
         df = df.sort_values("DateTime").reset_index(drop=True)
 
 # ----------------------
-# Only proceed if dataframe not empty
+# Proceed if data exists
 # ----------------------
 if not df.empty:
     last_date = df["DateTime"].dt.date.max()
@@ -95,6 +95,7 @@ if not df.empty:
     else:
         df_24h["Hours"] = (df_24h["DateTime"] - df_24h["DateTime"].min()).dt.total_seconds() / 3600
 
+        # 計算特徵（僅供模型使用，不顯示）
         max_bt = df_24h["Temperature"].max()
         min_bt = df_24h["Temperature"].min()
         mean_bt = df_24h["Temperature"].mean()
@@ -111,6 +112,7 @@ if not df.empty:
 
         features = [max_bt, min_bt, mean_bt, std_bt, slope, range_bt, max_last8, diff_last8_allmax]
 
+        # 模型預測
         try:
             scaler = joblib.load("scaler.pkl")
             svm_model = joblib.load("svm_model.pkl")
@@ -133,10 +135,12 @@ if not df.empty:
             st.error(f"Error loading scaler or model: {e}")
 
         # ----------------------
-        # Data Preview (last 24h)
+        # Data Preview (Last 24h)
         # ----------------------
         st.write("### 🧾 Data Preview (Last 24h)")
-        st.dataframe(df_24h)
+        df_preview = df_24h.copy()
+        df_preview["Time"] = df_preview["DateTime"].dt.strftime("%H:%M")  # 格式化時間顯示
+        st.dataframe(df_preview[["Time", "Temperature"]])
 
         # ----------------------
         # Temperature Trend Plot
@@ -148,7 +152,7 @@ if not df.empty:
         ax.set_ylim(35, 43)
         ax.set_xlabel("Time")
         ax.set_ylabel("Temperature (°C)")
-        plt.xticks(rotation=45, ha='right')  # 逆時針45度顯示時間
+        plt.xticks(rotation=45, ha='right')  # 逆時針45度旋轉時間
         ax.grid(True)
         ax.legend()
         st.pyplot(fig)
