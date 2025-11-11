@@ -33,6 +33,64 @@ if uploaded_file is not None:
 
     df = df.sort_values("DateTime").reset_index(drop=True)
 
+    # ---------------------------------------------------
+    # 🤖 Prediction (appear before Data Preview)
+    # ---------------------------------------------------
+    st.subheader("🤖 Prediction Result")
+
+    try:
+        # Feature engineering for prediction
+        t0 = df["DateTime"].min()
+        df["Hours"] = (df["DateTime"] - t0).dt.total_seconds() / 3600
+
+        max_bt = df["Temperature"].max()
+        min_bt = df["Temperature"].min()
+        mean_bt = df["Temperature"].mean()
+        std_bt = df["Temperature"].std()
+
+        X = df["Hours"].values.reshape(-1, 1)
+        y = df["Temperature"].values
+        model_lr = LinearRegression().fit(X, y)
+        slope = model_lr.coef_[0]
+
+        last_time = df["Hours"].max()
+        last_8h = df[df["Hours"] >= last_time - 8]
+        max_last8 = last_8h["Temperature"].max()
+
+        range_bt = max_bt - min_bt
+        diff_last8_allmax = max_last8 - max_bt
+
+        # Build feature list
+        features = [max_bt, min_bt, mean_bt, std_bt, slope, range_bt, max_last8, diff_last8_allmax]
+
+        # Load scaler and SVM model
+        scaler = joblib.load("scaler.pkl")
+        svm_model = joblib.load("svm_model.pkl")
+
+        # Normalize features
+        features_array = np.array(features).reshape(1, -1)
+        features_scaled = scaler.transform(features_array)
+
+        # Model prediction
+        if hasattr(svm_model, "predict_proba"):
+            pred_prob = svm_model.predict_proba(features_scaled)[0][1]
+        else:
+            pred_prob = svm_model.decision_function(features_scaled)[0]
+
+        threshold = 0.5
+        if pred_prob >= threshold:
+            st.success(f"Prediction: Fever likely (Score/Probability={pred_prob:.3f} ≥ {threshold})")
+        else:
+            st.info(f"Prediction: No fever expected (Score/Probability={pred_prob:.3f} < {threshold})")
+
+    except FileNotFoundError as e:
+        st.error(f"Missing required model file: {e.filename}")
+    except Exception as e:
+        st.error(f"Error during model loading or prediction: {e}")
+
+    # ---------------------------------------------------
+    # 🧾 Data Preview
+    # ---------------------------------------------------
     st.write("### 🧾 Data Preview:")
     st.dataframe(df)
 
@@ -58,11 +116,8 @@ if uploaded_file is not None:
             st.dataframe(df_range)
 
             # ---------------------------------------------------
-            # 🧩 Feature Engineering
+            # 🧩 Statistical Summary
             # ---------------------------------------------------
-            t0 = df_range["DateTime"].min()
-            df_range["Hours"] = (df_range["DateTime"] - t0).dt.total_seconds() / 3600
-
             max_bt = df_range["Temperature"].max()
             min_bt = df_range["Temperature"].min()
             mean_bt = df_range["Temperature"].mean()
@@ -80,67 +135,37 @@ if uploaded_file is not None:
             range_bt = max_bt - min_bt
             diff_last8_allmax = max_last8 - max_bt
 
-            # Build feature list
-            features = [max_bt, min_bt, mean_bt, std_bt, slope, range_bt, max_last8, diff_last8_allmax]
             feature_names = [
                 "Maximum (max)", "Minimum (min)", "Average (mean)", "Standard Deviation (std)",
                 "Slope", "Max - Min", "Max of Last 8 Hours", "Last 8h Max - Overall Max"
             ]
+            features_values = [max_bt, min_bt, mean_bt, std_bt, slope, range_bt, max_last8, diff_last8_allmax]
 
             result_table = pd.DataFrame({
                 "Feature": feature_names,
-                "Value": [f"{v:.4f}" for v in features]
+                "Value": [f"{v:.4f}" for v in features_values]
             })
             st.subheader("📊 Statistical Summary")
             st.table(result_table)
 
             # ---------------------------------------------------
-            # 🤖 Prediction
-            # ---------------------------------------------------
-            st.subheader("🤖 Prediction Result")
-
-            try:
-                # Load scaler and model
-                scaler = joblib.load("scaler.pkl")
-                svm_model = joblib.load("svm_model.pkl")
-
-                # Normalize features
-                features_array = np.array(features).reshape(1, -1)
-                features_scaled = scaler.transform(features_array)
-
-                # Model prediction
-                if hasattr(svm_model, "predict_proba"):
-                    pred_prob = svm_model.predict_proba(features_scaled)[0][1]
-                else:
-                    pred_prob = svm_model.decision_function(features_scaled)[0]
-
-                threshold = 0.5
-                if pred_prob >= threshold:
-                    st.success(f"Prediction: Fever likely (Score/Probability={pred_prob:.3f} ≥ {threshold})")
-                else:
-                    st.info(f"Prediction: No fever expected (Score/Probability={pred_prob:.3f} < {threshold})")
-
-            except FileNotFoundError as e:
-                st.error(f"Missing required model file: {e.filename}")
-            except Exception as e:
-                st.error(f"Error during model loading or prediction: {e}")
-
-            # ---------------------------------------------------
-            # 📉 Temperature Chart (Y-axis fixed between 35~43°C)
+            # 📉 Temperature Trend (y-axis 35~43, red line at 38)
             # ---------------------------------------------------
             st.subheader("📉 Temperature Trend")
 
             fig, ax = plt.subplots()
-            ax.plot(df_range["DateTime"], df_range["Temperature"], marker='o')
-            ax.axhline(y=38, color='darkred', linestyle='--', linewidth=2, label="Fever Threshold (38°C)")  # 🔥 Dark red line
+            ax.plot(df_range["DateTime"], df_range["Temperature"], marker='o', label="Temperature")
+            ax.axhline(y=38, color='darkred', linestyle='--', linewidth=2, label="Fever Threshold (38°C)")
             ax.set_ylim(35, 43)
             ax.set_xlabel("Time")
             ax.set_ylabel("Temperature (°C)")
             ax.grid(True)
+            ax.legend()
             st.pyplot(fig)
 
 else:
     st.info("⬆️ Please upload a CSV file to begin analysis.")
+
 
 
 
