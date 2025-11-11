@@ -18,15 +18,12 @@ to predict whether a fever may occur in the coming days.
 
 **Input Options:**  
 1. Upload a CSV file with three columns: `Date`, `Time`, `Temperature`  
-   - `Date`: YYYYMMDD  
-   - `Time`: HHMM  
-   - `Temperature`: Celsius  
-2. Manual entry: fill in the temperature for the displayed time points.
+2. Manual entry: edit temperatures directly in the table below.
 """)
 
-# ---------------------------------------------------
+# ----------------------
 # Input Method
-# ---------------------------------------------------
+# ----------------------
 input_method = st.radio("Select input method:", ["Upload CSV file", "Manual Entry"])
 df = pd.DataFrame(columns=["Date", "Time", "Temperature"])
 
@@ -34,7 +31,7 @@ df = pd.DataFrame(columns=["Date", "Time", "Temperature"])
 # CSV Upload
 # ----------------------
 if input_method == "Upload CSV file":
-    uploaded_file = st.file_uploader("Please upload a CSV file with columns: Date, Time, Temperature", type=["csv"])
+    uploaded_file = st.file_uploader("Upload CSV with columns: Date, Time, Temperature", type=["csv"])
     if uploaded_file is not None:
         df = pd.read_csv(uploaded_file)
         df.columns = ["Date", "Time", "Temperature"][:len(df.columns)]
@@ -46,36 +43,31 @@ if input_method == "Upload CSV file":
         df = df.sort_values("DateTime").reset_index(drop=True)
 
 # ----------------------
-# Manual Entry
+# Manual Entry as DataFrame
 # ----------------------
 elif input_method == "Manual Entry":
-    st.subheader("Manual Data Entry")
-    
-    # Create time points from 08:00 Day 1 to 07:00 Day 2
-    day1_times = [f"{h:02d}:00" for h in range(8, 24)]
-    day2_times = [f"{h:02d}:00" for h in range(0, 8)]
-    
-    all_times = [("Day1", t) for t in day1_times] + [("Day2", t) for t in day2_times]
-    
-    manual_data = []
-    st.write("Enter body temperature for the time points below. Leave empty if no measurement.")
-    
-    for day, t in all_times:
-        temp = st.text_input(f"{day} {t}", value="", key=f"{day}_{t}")
-        if temp.strip() != "":
-            try:
-                temp_val = float(temp)
-                manual_data.append({"Date": day, "Time": t.replace(":", ""), "Temperature": temp_val})
-            except:
-                st.warning(f"Invalid temperature input at {day} {t}. Skipping this entry.")
+    st.subheader("Manual Data Entry (editable table)")
 
-    if manual_data:
-        df = pd.DataFrame(manual_data)
-        # Map Day1/Day2 to logical datetime
+    # Create all time points from 08:00 Day1 → 07:00 Day2
+    day1_times = [f"{h:02d}:00" for h in range(8,24)]
+    day2_times = [f"{h:02d}:00" for h in range(0,8)]
+    all_times = [("Day1", t) for t in day1_times] + [("Day2", t) for t in day2_times]
+
+    manual_df = pd.DataFrame(all_times, columns=["Date", "Time"])
+    manual_df["Temperature"] = np.nan  # empty temperature column
+
+    # Editable table
+    edited_df = st.data_editor(manual_df, num_rows="dynamic", use_container_width=True)
+
+    # Remove empty temperature rows
+    edited_df = edited_df.dropna(subset=["Temperature"])
+    if not edited_df.empty:
+        df = edited_df.copy()
+        # Map Day1/Day2 to datetime
         base_date = datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
         df["DateTime"] = df.apply(lambda row: base_date + timedelta(days=int(row["Date"][-1])-1,
                                                                 hours=int(row["Time"][:2]),
-                                                                minutes=int(row["Time"][2:])), axis=1)
+                                                                minutes=int(row["Time"][3:])), axis=1)
         df = df.sort_values("DateTime").reset_index(drop=True)
 
 # ----------------------
@@ -129,7 +121,7 @@ if not df.empty:
     # ----------------------
     # Data Preview
     # ----------------------
-    st.write("### 🧾 Data Preview (entered measurements)")
+    st.write("### 🧾 Data Preview")
     st.dataframe(df)
 
     # ----------------------
@@ -160,6 +152,7 @@ if not df.empty:
 
 else:
     st.info("⬆️ Please upload a CSV file or fill in temperatures manually to begin analysis.")
+
 
 
 
