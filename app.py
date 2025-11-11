@@ -47,7 +47,7 @@ if input_method == "Upload CSV file":
 # ----------------------
 elif input_method == "Manual Entry":
     st.subheader("Manual Data Entry (editable table)")
-
+    
     # Default times: 08:00 Day1 → 07:00 Day2
     day1_times = [f"{h:02d}:00" for h in range(8,24)]
     day2_times = [f"{h:02d}:00" for h in range(0,8)]
@@ -78,7 +78,6 @@ if not df.empty:
     # ----------------------
     last_datetime = df["DateTime"].max()
     end_time = last_datetime.replace(hour=8, minute=0, second=0, microsecond=0)
-    # If last data point is before 08:00, use that as end_time
     if last_datetime < end_time:
         end_time = last_datetime
     start_time = end_time - timedelta(hours=24)
@@ -90,7 +89,7 @@ if not df.empty:
         st.warning("No data available in the last 24 hours (08:00 → 08:00).")
     else:
         # ----------------------
-        # Feature Engineering
+        # Feature Engineering (raw features only from last 24h)
         # ----------------------
         df_24h["Hours"] = (df_24h["DateTime"] - df_24h["DateTime"].min()).dt.total_seconds()/3600
 
@@ -115,13 +114,13 @@ if not df.empty:
         ]
 
         # ----------------------
-        # Display Raw Features
+        # Display Raw Features (last 24h only)
         # ----------------------
-        st.subheader("🧮 Raw Features")
+        st.subheader("🧮 Raw Features (Last 24h)")
         st.dataframe(pd.DataFrame([features], columns=feature_names))
 
         # ----------------------
-        # Load scaler & SVM model
+        # Load scaler & display scaled features
         # ----------------------
         try:
             scaler = joblib.load("scaler.pkl")
@@ -152,7 +151,7 @@ if not df.empty:
             st.error(f"Error loading scaler or model: {e}")
 
         # ----------------------
-        # Data Preview
+        # Data Preview (last 24h)
         # ----------------------
         st.write("### 🧾 Data Preview (Last 24h)")
         st.dataframe(df_24h)
@@ -160,7 +159,7 @@ if not df.empty:
         # ----------------------
         # Statistical Summary
         # ----------------------
-        st.subheader("📊 Statistical Summary")
+        st.subheader("📊 Statistical Summary (Last 24h)")
         features_values = [max_bt, min_bt, mean_bt, std_bt, slope, range_bt, max_last8, diff_last8_allmax]
         st.table(pd.DataFrame({"Feature": feature_names, "Value":[f"{v:.4f}" for v in features_values]}))
 
@@ -180,6 +179,7 @@ if not df.empty:
 
 else:
     st.info("⬆️ Please upload a CSV file or fill in temperatures manually to begin analysis.")
+
 
 
 
