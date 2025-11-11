@@ -7,9 +7,22 @@ from sklearn.linear_model import LinearRegression
 import joblib  # for loading pkl models
 
 # ---------------------------------------------------
-# 📘 Streamlit Title
+# 📘 Streamlit Title & App Introduction
 # ---------------------------------------------------
 st.title("📈 Body Temperature Analysis Tool (CSV Upload + Normalization + Prediction)")
+
+st.markdown("""
+**App Description:**  
+This app uses historical body temperature records from **08:00 to 08:00 the following day** 
+to predict whether a fever may occur in the coming days.
+
+**CSV Requirements:**  
+The CSV file must contain three columns in this order:  
+`Date`, `Time`, `Temperature`  
+- `Date`: in `YYYYMMDD` format (e.g., 20251111)  
+- `Time`: in `HHMM` format (e.g., 0830 for 08:30)  
+- `Temperature`: in Celsius (e.g., 36.5)
+""")
 
 # ---------------------------------------------------
 # 📂 Upload CSV File
@@ -165,6 +178,7 @@ if uploaded_file is not None:
 
 else:
     st.info("⬆️ Please upload a CSV file to begin analysis.")
+
 
 
 
