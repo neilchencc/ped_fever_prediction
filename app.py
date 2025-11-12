@@ -10,7 +10,7 @@ from dateutil import parser
 # ---------------------------------------------------
 # Title & Introduction
 # ---------------------------------------------------
-st.title("📈 Fever Prediction")
+st.title("📈 Body Temperature Analysis Tool (Last 24h Prediction)")
 
 st.markdown("""
 **App Description:**  
@@ -36,11 +36,12 @@ df = pd.DataFrame(columns=["Date", "Time", "Temperature"])
 # Helper Function for Robust Date/Time Parsing
 # ----------------------
 def parse_datetime(date_str, time_str):
+    """Robustly parse multiple date/time formats including 0, 5, 130, 1700, etc."""
     time_str = str(time_str).strip()
 
     if time_str in ["", "nan", "NaN"]:
         time_str = "00:00"
-    elif time_str.isdigit():
+    elif time_str.isdigit():  # 130 → 01:30, 5 → 00:05, 0 → 00:00
         time_str = time_str.zfill(4)
         time_str = time_str[:2] + ":" + time_str[2:]
 
@@ -67,10 +68,17 @@ if input_method == "Upload CSV file":
         df.columns = [c.strip() for c in df.columns]
 
         try:
+            # 🧹 清理欄位內容
             df["Date"] = df["Date"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
             df["Time"] = df["Time"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
+            
+            # 🚫 移除空溫度列
+            df = df.dropna(subset=["Temperature"]).reset_index(drop=True)
+
+            # ⏰ 日期時間解析
             df["DateTime"] = df.apply(lambda row: parse_datetime(row["Date"], row["Time"]), axis=1)
             df = df.sort_values("DateTime").reset_index(drop=True)
+
         except Exception as e:
             st.error(f"Date/Time parsing error: {e}")
             df = pd.DataFrame(columns=["Date", "Time", "Temperature", "DateTime"])
@@ -80,29 +88,35 @@ if input_method == "Upload CSV file":
 # ----------------------
 elif input_method == "Manual Entry":
     st.subheader("Manual Data Entry (editable table)")
-    
-    day1_times = [f"{h:02d}:00" for h in range(8,24)]
-    day2_times = [f"{h:02d}:00" for h in range(0,8)]
+
+    day1_times = [f"{h:02d}:00" for h in range(8, 24)]
+    day2_times = [f"{h:02d}:00" for h in range(0, 8)]
     all_times = [("Day1", t) for t in day1_times] + [("Day2", t) for t in day2_times]
 
     manual_df = pd.DataFrame(all_times, columns=["Day", "Time"])
     manual_df["Temperature"] = np.nan
 
     edited_df = st.data_editor(manual_df, num_rows="dynamic", use_container_width=True)
+
+    # 🚫 移除空溫度列
     edited_df = edited_df.dropna(subset=["Temperature"])
 
     if not edited_df.empty:
         df = edited_df.copy()
         today = datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
-        df["DateTime"] = df.apply(lambda row: (
-            today - timedelta(days=1) if row["Day"]=="Day1" else today
-        ) + timedelta(hours=int(row["Time"][:2]), minutes=int(row["Time"][3:])), axis=1)
+        df["DateTime"] = df.apply(
+            lambda row: (
+                today - timedelta(days=1) if row["Day"] == "Day1" else today
+            ) + timedelta(hours=int(row["Time"][:2]), minutes=int(row["Time"][3:])),
+            axis=1,
+        )
         df = df.sort_values("DateTime").reset_index(drop=True)
 
 # ----------------------
 # Proceed if Data Exists
 # ----------------------
 if not df.empty:
+    # 過濾最近24小時資料（08:00 → 08:00）
     last_date = df["DateTime"].dt.date.max()
     end_time = datetime.combine(last_date, datetime.min.time()) + timedelta(hours=8)
     start_time = end_time - timedelta(hours=24)
@@ -111,7 +125,7 @@ if not df.empty:
     if df_24h.empty:
         st.warning("No data available in the last 24 hours (08:00 → 08:00).")
     else:
-        df_24h["Hours"] = (df_24h["DateTime"] - df_24h["DateTime"].min()).dt.total_seconds()/3600
+        df_24h["Hours"] = (df_24h["DateTime"] - df_24h["DateTime"].min()).dt.total_seconds() / 3600
 
         # ---------------------- Features ----------------------
         max_bt = df_24h["Temperature"].max()
@@ -119,12 +133,12 @@ if not df.empty:
         mean_bt = df_24h["Temperature"].mean()
         std_bt = df_24h["Temperature"].std()
 
-        X = df_24h["Hours"].values.reshape(-1,1)
+        X = df_24h["Hours"].values.reshape(-1, 1)
         y = df_24h["Temperature"].values
         slope = LinearRegression().fit(X, y).coef_[0]
 
         last_time = df_24h["Hours"].max()
-        last_8h = df_24h[df_24h["Hours"] >= last_time-8]
+        last_8h = df_24h[df_24h["Hours"] >= last_time - 8]
         max_last8 = last_8h["Temperature"].max()
         range_bt = max_bt - min_bt
         diff_last8_allmax = max_last8 - max_bt
@@ -135,7 +149,7 @@ if not df.empty:
         try:
             scaler = joblib.load("scaler.pkl")
             svm_model = joblib.load("svm_model.pkl")
-            features_scaled = scaler.transform(np.array(features).reshape(1,-1))
+            features_scaled = scaler.transform(np.array(features).reshape(1, -1))
 
             st.subheader("🤖 Prediction Result")
             if hasattr(svm_model, "predict_proba"):
@@ -145,9 +159,9 @@ if not df.empty:
 
             threshold = 0.5
             if pred_prob >= threshold:
-                st.success(f"Prediction: Fever expected in the coming day (Score/Probability={pred_prob:.3f} ≥ {threshold})")
+                st.success(f"Prediction: Fever likely (Score/Probability={pred_prob:.3f} ≥ {threshold})")
             else:
-                st.info(f"Prediction: No fever expected in the coming day (Score/Probability={pred_prob:.3f} < {threshold})")
+                st.info(f"Prediction: No fever expected (Score/Probability={pred_prob:.3f} < {threshold})")
 
         except FileNotFoundError as e:
             st.error(f"Missing model file: {e.filename}")
@@ -157,25 +171,27 @@ if not df.empty:
         # ---------------------- Data Preview ----------------------
         st.subheader("🧾 Data Preview (Last 24h)")
         df_preview = df_24h.copy()
-        df_preview["Date"] = df_preview["DateTime"].dt.strftime("%Y-%m-%d")  # Keep date
-        df_preview["Time"] = df_preview["DateTime"].dt.strftime("%H:%M")     # HH:MM
+        df_preview["Date"] = df_preview["DateTime"].dt.strftime("%Y-%m-%d")
+        df_preview["Time"] = df_preview["DateTime"].dt.strftime("%H:%M")
         st.dataframe(df_preview[["Date", "Time", "Temperature"]])
 
         # ---------------------- Temperature Trend ----------------------
         st.subheader("📉 Temperature Trend (Last 24h)")
         fig, ax = plt.subplots()
-        ax.plot(df_24h["DateTime"], df_24h["Temperature"], marker='o', label="Temperature")
-        ax.axhline(y=38, color='darkred', linestyle='--', linewidth=2, label="Fever Threshold (38°C)")
+        ax.plot(df_24h["DateTime"], df_24h["Temperature"], marker="o", label="Temperature")
+        ax.axhline(y=38, color="darkred", linestyle="--", linewidth=2, label="Fever Threshold (38°C)")
         ax.set_ylim(35, 43)
         ax.set_xlabel("Time")
         ax.set_ylabel("Temperature (°C)")
         ax.grid(True)
         ax.legend()
-        plt.xticks(rotation=45, ha='left')  # Counterclockwise 45°
+        plt.xticks(rotation=45, ha="left")
         st.pyplot(fig)
 
-else: 
+else:
     st.info("⬆️ Please upload a CSV file or fill in temperatures manually to begin analysis.")
+
+
 
 
 
