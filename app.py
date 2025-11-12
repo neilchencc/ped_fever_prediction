@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 from sklearn.linear_model import LinearRegression
 import joblib
 from dateutil import parser
-import chardet  # 用於自動偵測編碼
 
 # ---------------------------------------------------
 # Title & Introduction
@@ -19,7 +18,7 @@ This app uses historical body temperature records from **08:00 of the previous d
 to predict whether a fever may occur in the coming days.
 
 **Input Options:**  
-1. Upload a CSV file with three columns: `Date`, `Time`, `Temperature`  
+1. Upload a CSV file with at least three columns (first: Date, second: Time, third: Temperature)  
 2. Manual entry: edit temperatures directly in the table below.
 
 **Note:**  
@@ -61,30 +60,32 @@ def parse_datetime(date_str, time_str):
 # CSV Upload
 # ----------------------
 if input_method == "Upload CSV file":
-    uploaded_file = st.file_uploader("Upload CSV with columns: Date, Time, Temperature", type=["csv"])
+    uploaded_file = st.file_uploader("Upload CSV with at least 3 columns", type=["csv"])
     if uploaded_file is not None:
-        # 自動偵測編碼
-        raw_bytes = uploaded_file.read()
-        encoding = chardet.detect(raw_bytes)['encoding']
-        uploaded_file.seek(0)  # 重置指針
+        # 嘗試自動判斷編碼
         try:
-            df = pd.read_csv(uploaded_file, encoding=encoding)
-        except Exception as e:
-            st.error(f"CSV 讀取錯誤: {e}")
-            df = pd.DataFrame(columns=["Date", "Time", "Temperature"])
+            df = pd.read_csv(uploaded_file, encoding='utf-8')
+        except:
+            df = pd.read_csv(uploaded_file, encoding='gbk')  # 若含中文，可能是 gbk
 
-        # 只保留前三欄並改名
-        if not df.empty:
-            df = df.iloc[:, :3]
-            df.columns = ["Date", "Time", "Temperature"]
-            df["Date"] = df["Date"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
-            df["Time"] = df["Time"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
-            try:
-                df["DateTime"] = df.apply(lambda row: parse_datetime(row["Date"], row["Time"]), axis=1)
-                df = df.sort_values("DateTime").reset_index(drop=True)
-            except Exception as e:
-                st.error(f"Date/Time parsing error: {e}")
-                df = pd.DataFrame(columns=["Date", "Time", "Temperature", "DateTime"])
+        # 只保留前三欄並重新命名
+        df = df.iloc[:, :3]
+        df.columns = ["Date", "Time", "Temperature"]
+
+        # 去掉空值列
+        df = df.dropna(subset=["Temperature"])
+
+        # 去掉多餘的小數點零
+        df["Date"] = df["Date"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
+        df["Time"] = df["Time"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
+
+        # 解析日期時間
+        try:
+            df["DateTime"] = df.apply(lambda row: parse_datetime(row["Date"], row["Time"]), axis=1)
+            df = df.sort_values("DateTime").reset_index(drop=True)
+        except Exception as e:
+            st.error(f"Date/Time parsing error: {e}")
+            df = pd.DataFrame(columns=["Date", "Time", "Temperature", "DateTime"])
 
 # ----------------------
 # Manual Entry
@@ -100,7 +101,7 @@ elif input_method == "Manual Entry":
     manual_df["Temperature"] = np.nan
 
     edited_df = st.data_editor(manual_df, num_rows="dynamic", use_container_width=True)
-    edited_df = edited_df.dropna(subset=["Temperature"])
+    edited_df = edited_df.dropna(subset=["Temperature"])  # 自動刪掉空值
 
     if not edited_df.empty:
         df = edited_df.copy()
@@ -187,6 +188,8 @@ if not df.empty:
 
 else: 
     st.info("⬆️ Please upload a CSV file or fill in temperatures manually to begin analysis.")
+
+
 
 
 
