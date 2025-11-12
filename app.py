@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 from sklearn.linear_model import LinearRegression
 import joblib
 from dateutil import parser
-import chardet
 
 # ---------------------------------------------------
 # Title & Introduction
@@ -61,43 +60,33 @@ def parse_datetime(date_str, time_str):
 # CSV Upload
 # ----------------------
 if input_method == "Upload CSV file":
-    uploaded_file = st.file_uploader("Upload CSV with at least three columns: Date, Time, Temperature", type=["csv"])
+    uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
     if uploaded_file is not None:
-        try:
-            # 偵測編碼
-            uploaded_file.seek(0)
-            rawdata = uploaded_file.read()
-            result = chardet.detect(rawdata)
-            encoding = result['encoding']
+        # 嘗試多種編碼讀取 CSV（utf-8, gbk, big5）
+        encodings = ['utf-8', 'gbk', 'big5']
+        for enc in encodings:
+            try:
+                df = pd.read_csv(uploaded_file, encoding=enc)
+                break
+            except Exception:
+                uploaded_file.seek(0)  # 回到檔案開頭，重新讀取
+        else:
+            st.error("Failed to read CSV. Please check file encoding.")
+            df = pd.DataFrame(columns=["Date", "Time", "Temperature"])
 
-            if encoding is None:
-                encoding = "big5"
+        if not df.empty:
+            # 只保留前三欄，並統一欄位名稱
+            df = df.iloc[:, :3]
+            df.columns = ["Date", "Time", "Temperature"]
+            df["Date"] = df["Date"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
+            df["Time"] = df["Time"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
 
-            uploaded_file.seek(0)
-            df = pd.read_csv(uploaded_file, encoding=encoding)
-
-            if df.empty:
-                st.error("Uploaded CSV is empty.")
-            else:
-                # 只保留前三欄並重新命名
-                df = df.iloc[:, :3]
-                df.columns = ["Date", "Time", "Temperature"]
-                df = df.dropna(subset=["Temperature"])  # 刪除溫度空值列
-
-                # 清理數據
-                df["Date"] = df["Date"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
-                df["Time"] = df["Time"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
-
-                # 解析日期時間
+            try:
                 df["DateTime"] = df.apply(lambda row: parse_datetime(row["Date"], row["Time"]), axis=1)
                 df = df.sort_values("DateTime").reset_index(drop=True)
-
-        except pd.errors.EmptyDataError:
-            st.error("Uploaded CSV is empty or unreadable.")
-        except UnicodeDecodeError:
-            st.error("Failed to decode CSV. Please make sure it's encoded in UTF-8, GBK, or Big5.")
-        except Exception as e:
-            st.error(f"Error reading CSV: {e}")
+            except Exception as e:
+                st.error(f"Date/Time parsing error: {e}")
+                df = pd.DataFrame(columns=["Date", "Time", "Temperature", "DateTime"])
 
 # ----------------------
 # Manual Entry
@@ -127,79 +116,100 @@ elif input_method == "Manual Entry":
 # Proceed if Data Exists
 # ----------------------
 if not df.empty:
-    last_date = df["DateTime"].dt.date.max()
-    end_time = datetime.combine(last_date, datetime.min.time()) + timedelta(hours=8)
-    start_time = end_time - timedelta(hours=24)
-    df_24h = df[(df["DateTime"] >= start_time) & (df["DateTime"] <= end_time)].copy().reset_index(drop=True)
+    # ---------------------- Data Cleaning: Remove Abnormal Temperatures ----------------------
+    df['TemperatureFlag'] = df['Temperature'].apply(lambda x: 'error' if x < 35 or x > 43 else 'ok')
+    
+    # ---------------------- Data Preview ----------------------
+    st.subheader("🧾 Data Preview (Last 24h)")
 
-    if df_24h.empty:
-        st.warning("No data available in the last 24 hours (08:00 → 08:00).")
+    df_preview = df.copy()
+    df_preview["Date"] = df_preview["DateTime"].dt.strftime("%Y-%m-%d")
+    df_preview["Time"] = df_preview["DateTime"].dt.strftime("%H:%M")
+    
+    # 用 HTML 樣式顯示紅字錯誤溫度
+    def color_temperature(val, flag):
+        color = 'red' if flag == 'error' else 'black'
+        return f'<span style="color:{color}">{val}</span>'
+    
+    df_preview_display = df_preview[["Date", "Time", "Temperature", "TemperatureFlag"]].copy()
+    df_preview_display["Temperature"] = df_preview_display.apply(lambda row: color_temperature(row["Temperature"], row["TemperatureFlag"]), axis=1)
+    st.write(df_preview_display.to_html(escape=False, index=False), unsafe_allow_html=True)
+
+    # 只保留正常溫度進行後續分析
+    df = df[df['TemperatureFlag'] == 'ok'].copy()
+    df = df.drop(columns=['TemperatureFlag'])
+
+    # ---------------------- Last 24h Filtering ----------------------
+    if not df.empty:
+        last_date = df["DateTime"].dt.date.max()
+        end_time = datetime.combine(last_date, datetime.min.time()) + timedelta(hours=8)
+        start_time = end_time - timedelta(hours=24)
+        df_24h = df[(df["DateTime"] >= start_time) & (df["DateTime"] <= end_time)].copy().reset_index(drop=True)
+
+        if df_24h.empty:
+            st.warning("No data available in the last 24 hours (08:00 → 08:00).")
+        else:
+            df_24h["Hours"] = (df_24h["DateTime"] - df_24h["DateTime"].min()).dt.total_seconds()/3600
+
+            # ---------------------- Features ----------------------
+            max_bt = df_24h["Temperature"].max()
+            min_bt = df_24h["Temperature"].min()
+            mean_bt = df_24h["Temperature"].mean()
+            std_bt = df_24h["Temperature"].std()
+
+            X = df_24h["Hours"].values.reshape(-1,1)
+            y = df_24h["Temperature"].values
+            slope = LinearRegression().fit(X, y).coef_[0]
+
+            last_time = df_24h["Hours"].max()
+            last_8h = df_24h[df_24h["Hours"] >= last_time-8]
+            max_last8 = last_8h["Temperature"].max()
+            range_bt = max_bt - min_bt
+            diff_last8_allmax = max_last8 - max_bt
+
+            features = [max_bt, min_bt, mean_bt, std_bt, slope, range_bt, max_last8, diff_last8_allmax]
+
+            # ---------------------- Model Prediction ----------------------
+            try:
+                scaler = joblib.load("scaler.pkl")
+                svm_model = joblib.load("svm_model.pkl")
+                features_scaled = scaler.transform(np.array(features).reshape(1,-1))
+
+                st.subheader("🤖 Prediction Result")
+                if hasattr(svm_model, "predict_proba"):
+                    pred_prob = svm_model.predict_proba(features_scaled)[0][1]
+                else:
+                    pred_prob = svm_model.decision_function(features_scaled)[0]
+
+                threshold = 0.5
+                if pred_prob >= threshold:
+                    st.success(f"Prediction: Fever likely (Score/Probability={pred_prob:.3f} ≥ {threshold})")
+                else:
+                    st.info(f"Prediction: No fever expected (Score/Probability={pred_prob:.3f} < {threshold})")
+
+            except FileNotFoundError as e:
+                st.error(f"Missing model file: {e.filename}")
+            except Exception as e:
+                st.error(f"Error loading scaler or model: {e}")
+
+            # ---------------------- Temperature Trend ----------------------
+            st.subheader("📉 Temperature Trend (Last 24h)")
+            fig, ax = plt.subplots()
+            ax.plot(df_24h["DateTime"], df_24h["Temperature"], marker='o', label="Temperature")
+            ax.axhline(y=38, color='darkred', linestyle='--', linewidth=2, label="Fever Threshold (38°C)")
+            ax.set_ylim(35, 43)
+            ax.set_xlabel("Time")
+            ax.set_ylabel("Temperature (°C)")
+            ax.grid(True)
+            ax.legend()
+            plt.xticks(rotation=45, ha='left')
+            st.pyplot(fig)
     else:
-        df_24h["Hours"] = (df_24h["DateTime"] - df_24h["DateTime"].min()).dt.total_seconds()/3600
-
-        # ---------------------- Features ----------------------
-        max_bt = df_24h["Temperature"].max()
-        min_bt = df_24h["Temperature"].min()
-        mean_bt = df_24h["Temperature"].mean()
-        std_bt = df_24h["Temperature"].std()
-
-        X = df_24h["Hours"].values.reshape(-1,1)
-        y = df_24h["Temperature"].values
-        slope = LinearRegression().fit(X, y).coef_[0]
-
-        last_time = df_24h["Hours"].max()
-        last_8h = df_24h[df_24h["Hours"] >= last_time-8]
-        max_last8 = last_8h["Temperature"].max()
-        range_bt = max_bt - min_bt
-        diff_last8_allmax = max_last8 - max_bt
-
-        features = [max_bt, min_bt, mean_bt, std_bt, slope, range_bt, max_last8, diff_last8_allmax]
-
-        # ---------------------- Model Prediction ----------------------
-        try:
-            scaler = joblib.load("scaler.pkl")
-            svm_model = joblib.load("svm_model.pkl")
-            features_scaled = scaler.transform(np.array(features).reshape(1,-1))
-
-            st.subheader("🤖 Prediction Result")
-            if hasattr(svm_model, "predict_proba"):
-                pred_prob = svm_model.predict_proba(features_scaled)[0][1]
-            else:
-                pred_prob = svm_model.decision_function(features_scaled)[0]
-
-            threshold = 0.5
-            if pred_prob >= threshold:
-                st.success(f"Prediction: Fever likely (Score/Probability={pred_prob:.3f} ≥ {threshold})")
-            else:
-                st.info(f"Prediction: No fever expected (Score/Probability={pred_prob:.3f} < {threshold})")
-
-        except FileNotFoundError as e:
-            st.error(f"Missing model file: {e.filename}")
-        except Exception as e:
-            st.error(f"Error loading scaler or model: {e}")
-
-        # ---------------------- Data Preview ----------------------
-        st.subheader("🧾 Data Preview (Last 24h)")
-        df_preview = df_24h.copy()
-        df_preview["Date"] = df_preview["DateTime"].dt.strftime("%Y-%m-%d")
-        df_preview["Time"] = df_preview["DateTime"].dt.strftime("%H:%M")
-        st.dataframe(df_preview[["Date", "Time", "Temperature"]])
-
-        # ---------------------- Temperature Trend ----------------------
-        st.subheader("📉 Temperature Trend (Last 24h)")
-        fig, ax = plt.subplots()
-        ax.plot(df_24h["DateTime"], df_24h["Temperature"], marker='o', label="Temperature")
-        ax.axhline(y=38, color='darkred', linestyle='--', linewidth=2, label="Fever Threshold (38°C)")
-        ax.set_ylim(35, 43)
-        ax.set_xlabel("Time")
-        ax.set_ylabel("Temperature (°C)")
-        ax.grid(True)
-        ax.legend()
-        plt.xticks(rotation=45, ha='left')
-        st.pyplot(fig)
-
+        st.warning("All temperatures are abnormal. Please check your data.")
 else:
     st.info("⬆️ Please upload a CSV file or fill in temperatures manually to begin analysis.")
+
+
 
 
 
