@@ -36,13 +36,12 @@ df = pd.DataFrame(columns=["Date", "Time", "Temperature"])
 # Helper Function for Parsing
 # ----------------------
 def parse_datetime(date_str, time_str):
-    # Fix empty or numeric time inputs
     time_str = str(time_str).strip()
     if time_str in ["", "nan", "NaN"]:
         time_str = "00:00"
-    elif time_str.isdigit() and len(time_str) <= 4:  # e.g., 0, 5, 130
-        time_str = time_str.zfill(4)  # pad to 4 digits
-        time_str = time_str[:2] + ":" + time_str[2:]  # convert 130 -> 01:30
+    elif time_str.isdigit() and len(time_str) <= 4:
+        time_str = time_str.zfill(4)
+        time_str = time_str[:2] + ":" + time_str[2:]
 
     try:
         dt_date = parser.parse(str(date_str), dayfirst=False, fuzzy=True)
@@ -67,10 +66,8 @@ if input_method == "Upload CSV file":
         df.columns = [c.strip() for c in df.columns]
 
         try:
-            # Clean column formats
             df["Date"] = df["Date"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
             df["Time"] = df["Time"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
-            
             df["DateTime"] = df.apply(lambda row: parse_datetime(row["Date"], row["Time"]), axis=1)
             df = df.sort_values("DateTime").reset_index(drop=True)
         except Exception as e:
@@ -78,7 +75,7 @@ if input_method == "Upload CSV file":
             df = pd.DataFrame(columns=["Date", "Time", "Temperature", "DateTime"])
 
 # ----------------------
-# Manual Entry as Editable DataFrame
+# Manual Entry
 # ----------------------
 elif input_method == "Manual Entry":
     st.subheader("Manual Data Entry (editable table)")
@@ -95,7 +92,6 @@ elif input_method == "Manual Entry":
 
     if not edited_df.empty:
         df = edited_df.copy()
-        # Assign dates based on today and yesterday
         today = datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
         df["DateTime"] = df.apply(lambda row: (
             today - timedelta(days=1) if row["Day"]=="Day1" else today
@@ -106,7 +102,6 @@ elif input_method == "Manual Entry":
 # Proceed if Data Exists
 # ----------------------
 if not df.empty:
-    # Restrict to last 24h window (08:00 previous → 08:00 current)
     last_date = df["DateTime"].dt.date.max()
     end_time = datetime.combine(last_date, datetime.min.time()) + timedelta(hours=8)
     start_time = end_time - timedelta(hours=24)
@@ -134,22 +129,12 @@ if not df.empty:
         diff_last8_allmax = max_last8 - max_bt
 
         features = [max_bt, min_bt, mean_bt, std_bt, slope, range_bt, max_last8, diff_last8_allmax]
-        feature_names = [
-            "Maximum (max)", "Minimum (min)", "Average (mean)", "Standard Deviation (std)",
-            "Slope", "Max - Min", "Max of Last 8 Hours", "Last 8h Max - Overall Max"
-        ]
-
-        st.subheader("🧮 Raw Features (Last 24h)")
-        st.dataframe(pd.DataFrame([features], columns=feature_names))
 
         # ---------------------- Model Prediction ----------------------
         try:
             scaler = joblib.load("scaler.pkl")
             svm_model = joblib.load("svm_model.pkl")
             features_scaled = scaler.transform(np.array(features).reshape(1,-1))
-
-            st.subheader("🔹 Scaled Features")
-            st.dataframe(pd.DataFrame(features_scaled, columns=feature_names))
 
             st.subheader("🤖 Prediction Result")
             if hasattr(svm_model, "predict_proba"):
@@ -168,16 +153,24 @@ if not df.empty:
         except Exception as e:
             st.error(f"Error loading scaler or model: {e}")
 
-        # ---------------------- Visualizations ----------------------
-        st.write("### 🧾 Data Preview (Last 24h)")
-        st.dataframe(df_24h)
+        # ---------------------- Data Preview ----------------------
+        st.subheader("🧾 Data Preview (Last 24h)")
+        df_preview = df_24h.copy()
+        df_preview["Time"] = df_preview["DateTime"].dt.strftime("%H:%M")  # only HH:MM
+        st.dataframe(df_preview[["Time", "Temperature"]])
 
+        # ---------------------- Statistical Summary ----------------------
+        feature_names = [
+            "Maximum (max)", "Minimum (min)", "Average (mean)", "Standard Deviation (std)",
+            "Slope", "Max - Min", "Max of Last 8 Hours", "Last 8h Max - Overall Max"
+        ]
         st.subheader("📊 Statistical Summary (Last 24h)")
         st.table(pd.DataFrame({
             "Feature": feature_names,
             "Value": [f"{v:.4f}" for v in features]
         }))
 
+        # ---------------------- Temperature Trend ----------------------
         st.subheader("📉 Temperature Trend (Last 24h)")
         fig, ax = plt.subplots()
         ax.plot(df_24h["DateTime"], df_24h["Temperature"], marker='o', label="Temperature")
@@ -187,10 +180,12 @@ if not df.empty:
         ax.set_ylabel("Temperature (°C)")
         ax.grid(True)
         ax.legend()
+        plt.xticks(rotation=45, ha='left')  # counterclockwise 45°
         st.pyplot(fig)
 
 else: 
     st.info("⬆️ Please upload a CSV file or fill in temperatures manually to begin analysis.")
+
 
 
 
