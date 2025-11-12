@@ -10,7 +10,7 @@ from dateutil import parser
 # ---------------------------------------------------
 # Title & Introduction
 # ---------------------------------------------------
-st.title("📈 Body Temperature Analysis Tool (Last 24h Prediction)")
+st.title("📈 Temperature Prediction in Children")
 
 st.markdown("""
 **App Description:**  
@@ -176,6 +176,7 @@ if not df.empty:
 
 else: 
     st.info("⬆️ Please upload a CSV file or fill in temperatures manually to begin analysis.")
+
 
 
 
