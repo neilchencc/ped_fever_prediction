@@ -184,6 +184,9 @@ if not df.empty:
         df_preview["Date"] = df_preview["DateTime"].dt.strftime("%Y-%m-%d")
         df_preview["Time"] = df_preview["DateTime"].dt.strftime("%H:%M")
 
+        # 保留一位小數
+        df_preview["Temperature"] = df_preview["Temperature"].round(1)
+
         # 樣式函數：體溫 <35 或 >43 用紅字
         def highlight_temp(val):
             try:
