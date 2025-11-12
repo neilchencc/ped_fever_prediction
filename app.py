@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from sklearn.linear_model import LinearRegression
 import joblib
 from dateutil import parser
+import chardet
 
 # ---------------------------------------------------
 # Title & Introduction
@@ -18,7 +19,7 @@ This app uses historical body temperature records from **08:00 of the previous d
 to predict whether a fever may occur in the coming days.
 
 **Input Options:**  
-1. Upload a CSV file with at least three columns (first: Date, second: Time, third: Temperature)  
+1. Upload a CSV file with three columns: `Date`, `Time`, `Temperature`  
 2. Manual entry: edit temperatures directly in the table below.
 
 **Note:**  
@@ -60,32 +61,43 @@ def parse_datetime(date_str, time_str):
 # CSV Upload
 # ----------------------
 if input_method == "Upload CSV file":
-    uploaded_file = st.file_uploader("Upload CSV with at least 3 columns", type=["csv"])
+    uploaded_file = st.file_uploader("Upload CSV with at least three columns: Date, Time, Temperature", type=["csv"])
     if uploaded_file is not None:
-        # 嘗試自動判斷編碼
         try:
-            df = pd.read_csv(uploaded_file, encoding='utf-8')
-        except:
-            df = pd.read_csv(uploaded_file, encoding='gbk')  # 若含中文，可能是 gbk
+            # 偵測編碼
+            uploaded_file.seek(0)
+            rawdata = uploaded_file.read()
+            result = chardet.detect(rawdata)
+            encoding = result['encoding']
 
-        # 只保留前三欄並重新命名
-        df = df.iloc[:, :3]
-        df.columns = ["Date", "Time", "Temperature"]
+            if encoding is None:
+                encoding = "big5"
 
-        # 去掉空值列
-        df = df.dropna(subset=["Temperature"])
+            uploaded_file.seek(0)
+            df = pd.read_csv(uploaded_file, encoding=encoding)
 
-        # 去掉多餘的小數點零
-        df["Date"] = df["Date"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
-        df["Time"] = df["Time"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
+            if df.empty:
+                st.error("Uploaded CSV is empty.")
+            else:
+                # 只保留前三欄並重新命名
+                df = df.iloc[:, :3]
+                df.columns = ["Date", "Time", "Temperature"]
+                df = df.dropna(subset=["Temperature"])  # 刪除溫度空值列
 
-        # 解析日期時間
-        try:
-            df["DateTime"] = df.apply(lambda row: parse_datetime(row["Date"], row["Time"]), axis=1)
-            df = df.sort_values("DateTime").reset_index(drop=True)
+                # 清理數據
+                df["Date"] = df["Date"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
+                df["Time"] = df["Time"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
+
+                # 解析日期時間
+                df["DateTime"] = df.apply(lambda row: parse_datetime(row["Date"], row["Time"]), axis=1)
+                df = df.sort_values("DateTime").reset_index(drop=True)
+
+        except pd.errors.EmptyDataError:
+            st.error("Uploaded CSV is empty or unreadable.")
+        except UnicodeDecodeError:
+            st.error("Failed to decode CSV. Please make sure it's encoded in UTF-8, GBK, or Big5.")
         except Exception as e:
-            st.error(f"Date/Time parsing error: {e}")
-            df = pd.DataFrame(columns=["Date", "Time", "Temperature", "DateTime"])
+            st.error(f"Error reading CSV: {e}")
 
 # ----------------------
 # Manual Entry
@@ -101,7 +113,7 @@ elif input_method == "Manual Entry":
     manual_df["Temperature"] = np.nan
 
     edited_df = st.data_editor(manual_df, num_rows="dynamic", use_container_width=True)
-    edited_df = edited_df.dropna(subset=["Temperature"])  # 自動刪掉空值
+    edited_df = edited_df.dropna(subset=["Temperature"])
 
     if not edited_df.empty:
         df = edited_df.copy()
@@ -186,14 +198,8 @@ if not df.empty:
         plt.xticks(rotation=45, ha='left')
         st.pyplot(fig)
 
-else: 
+else:
     st.info("⬆️ Please upload a CSV file or fill in temperatures manually to begin analysis.")
-
-
-
-
-
-
 
 
 
