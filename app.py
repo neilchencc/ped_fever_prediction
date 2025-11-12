@@ -36,13 +36,21 @@ df = pd.DataFrame(columns=["Date", "Time", "Temperature"])
 # Helper Function for Parsing
 # ----------------------
 def parse_datetime(date_str, time_str):
+    # Fix empty or numeric time inputs
+    time_str = str(time_str).strip()
+    if time_str in ["", "nan", "NaN"]:
+        time_str = "00:00"
+    elif time_str.isdigit() and len(time_str) <= 4:  # e.g., 0, 5, 130
+        time_str = time_str.zfill(4)  # pad to 4 digits
+        time_str = time_str[:2] + ":" + time_str[2:]  # convert 130 -> 01:30
+
     try:
         dt_date = parser.parse(str(date_str), dayfirst=False, fuzzy=True)
     except Exception:
         raise ValueError(f"Unrecognized date format: {date_str}")
 
     try:
-        dt_time = parser.parse(str(time_str), fuzzy=True).time()
+        dt_time = parser.parse(time_str, fuzzy=True).time()
     except Exception:
         raise ValueError(f"Unrecognized time format: {time_str}")
 
@@ -57,11 +65,12 @@ if input_method == "Upload CSV file":
         df = pd.read_csv(uploaded_file)
         df.columns = ["Date", "Time", "Temperature"][:len(df.columns)]
         df.columns = [c.strip() for c in df.columns]
+
         try:
-            # 清理欄位格式
+            # Clean column formats
             df["Date"] = df["Date"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
             df["Time"] = df["Time"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
-
+            
             df["DateTime"] = df.apply(lambda row: parse_datetime(row["Date"], row["Time"]), axis=1)
             df = df.sort_values("DateTime").reset_index(drop=True)
         except Exception as e:
@@ -78,7 +87,7 @@ elif input_method == "Manual Entry":
     day2_times = [f"{h:02d}:00" for h in range(0,8)]
     all_times = [("Day1", t) for t in day1_times] + [("Day2", t) for t in day2_times]
 
-    manual_df = pd.DataFrame(all_times, columns=["Date", "Time"])
+    manual_df = pd.DataFrame(all_times, columns=["Day", "Time"])
     manual_df["Temperature"] = np.nan
 
     edited_df = st.data_editor(manual_df, num_rows="dynamic", use_container_width=True)
@@ -86,12 +95,11 @@ elif input_method == "Manual Entry":
 
     if not edited_df.empty:
         df = edited_df.copy()
-        base_date = datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
-        df["DateTime"] = df.apply(lambda row: base_date + timedelta(
-            days=int(row["Date"][-1])-1,
-            hours=int(row["Time"][:2]),
-            minutes=int(row["Time"][3:])
-        ), axis=1)
+        # Assign dates based on today and yesterday
+        today = datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
+        df["DateTime"] = df.apply(lambda row: (
+            today - timedelta(days=1) if row["Day"]=="Day1" else today
+        ) + timedelta(hours=int(row["Time"][:2]), minutes=int(row["Time"][3:])), axis=1)
         df = df.sort_values("DateTime").reset_index(drop=True)
 
 # ----------------------
@@ -181,14 +189,8 @@ if not df.empty:
         ax.legend()
         st.pyplot(fig)
 
-else:
+else: 
     st.info("⬆️ Please upload a CSV file or fill in temperatures manually to begin analysis.")
-
-
-
-
-
-
 
 
 
