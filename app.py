@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from sklearn.linear_model import LinearRegression
 import joblib
 from dateutil import parser
-import chardet
+
 
 # ---------------------------------------------------
 # Title & Introduction
@@ -214,4 +214,5 @@ if not df.empty:
 
 else:
     st.info("⬆️ Please upload a CSV file or fill in temperatures manually to begin analysis.")
+
 
