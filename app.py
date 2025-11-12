@@ -36,20 +36,14 @@ df = pd.DataFrame(columns=["Date", "Time", "Temperature"])
 # Helper Function for Parsing
 # ----------------------
 def parse_datetime(date_str, time_str):
-    time_str = str(time_str).strip()
-    if time_str in ["", "nan", "NaN"]:
-        time_str = "00:00"
-    elif time_str.isdigit() and len(time_str) <= 4:
-        time_str = time_str.zfill(4)
-        time_str = time_str[:2] + ":" + time_str[2:]
-
+    """Parse multiple date/time formats automatically."""
     try:
         dt_date = parser.parse(str(date_str), dayfirst=False, fuzzy=True)
     except Exception:
         raise ValueError(f"Unrecognized date format: {date_str}")
 
     try:
-        dt_time = parser.parse(time_str, fuzzy=True).time()
+        dt_time = parser.parse(str(time_str), fuzzy=True).time()
     except Exception:
         raise ValueError(f"Unrecognized time format: {time_str}")
 
@@ -64,8 +58,8 @@ if input_method == "Upload CSV file":
         df = pd.read_csv(uploaded_file)
         df.columns = ["Date", "Time", "Temperature"][:len(df.columns)]
         df.columns = [c.strip() for c in df.columns]
-
         try:
+            # 🧹 Clean data before parsing
             df["Date"] = df["Date"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
             df["Time"] = df["Time"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
             df["DateTime"] = df.apply(lambda row: parse_datetime(row["Date"], row["Time"]), axis=1)
@@ -75,7 +69,7 @@ if input_method == "Upload CSV file":
             df = pd.DataFrame(columns=["Date", "Time", "Temperature", "DateTime"])
 
 # ----------------------
-# Manual Entry
+# Manual Entry as Editable DataFrame
 # ----------------------
 elif input_method == "Manual Entry":
     st.subheader("Manual Data Entry (editable table)")
@@ -84,7 +78,7 @@ elif input_method == "Manual Entry":
     day2_times = [f"{h:02d}:00" for h in range(0,8)]
     all_times = [("Day1", t) for t in day1_times] + [("Day2", t) for t in day2_times]
 
-    manual_df = pd.DataFrame(all_times, columns=["Day", "Time"])
+    manual_df = pd.DataFrame(all_times, columns=["Date", "Time"])
     manual_df["Temperature"] = np.nan
 
     edited_df = st.data_editor(manual_df, num_rows="dynamic", use_container_width=True)
@@ -92,16 +86,19 @@ elif input_method == "Manual Entry":
 
     if not edited_df.empty:
         df = edited_df.copy()
-        today = datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
-        df["DateTime"] = df.apply(lambda row: (
-            today - timedelta(days=1) if row["Day"]=="Day1" else today
-        ) + timedelta(hours=int(row["Time"][:2]), minutes=int(row["Time"][3:])), axis=1)
+        base_date = datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
+        df["DateTime"] = df.apply(lambda row: base_date + timedelta(
+            days=int(row["Date"][-1])-1,
+            hours=int(row["Time"][:2]),
+            minutes=int(row["Time"][3:])
+        ), axis=1)
         df = df.sort_values("DateTime").reset_index(drop=True)
 
 # ----------------------
 # Proceed if Data Exists
 # ----------------------
 if not df.empty:
+    # Restrict to last 24h window (08:00 previous → 08:00 current)
     last_date = df["DateTime"].dt.date.max()
     end_time = datetime.combine(last_date, datetime.min.time()) + timedelta(hours=8)
     start_time = end_time - timedelta(hours=24)
@@ -129,12 +126,22 @@ if not df.empty:
         diff_last8_allmax = max_last8 - max_bt
 
         features = [max_bt, min_bt, mean_bt, std_bt, slope, range_bt, max_last8, diff_last8_allmax]
+        feature_names = [
+            "Maximum (max)", "Minimum (min)", "Average (mean)", "Standard Deviation (std)",
+            "Slope", "Max - Min", "Max of Last 8 Hours", "Last 8h Max - Overall Max"
+        ]
+
+        st.subheader("🧮 Raw Features (Last 24h)")
+        st.dataframe(pd.DataFrame([features], columns=feature_names))
 
         # ---------------------- Model Prediction ----------------------
         try:
             scaler = joblib.load("scaler.pkl")
             svm_model = joblib.load("svm_model.pkl")
             features_scaled = scaler.transform(np.array(features).reshape(1,-1))
+
+            st.subheader("🔹 Scaled Features")
+            st.dataframe(pd.DataFrame(features_scaled, columns=feature_names))
 
             st.subheader("🤖 Prediction Result")
             if hasattr(svm_model, "predict_proba"):
@@ -153,17 +160,13 @@ if not df.empty:
         except Exception as e:
             st.error(f"Error loading scaler or model: {e}")
 
-        # ---------------------- Data Preview ----------------------
-        st.subheader("🧾 Data Preview (Last 24h)")
-        df_preview = df_24h.copy()
-        df_preview["Time"] = df_preview["DateTime"].dt.strftime("%H:%M")  # only HH:MM
-        st.dataframe(df_preview[["Time", "Temperature"]])
+        # ---------------------- Data Preview (only Date, Time, Temperature) ----------------------
+        st.write("### 🧾 Data Preview (Last 24h)")
+        df_24h["Date"] = df_24h["DateTime"].dt.strftime("%Y-%m-%d")
+        df_24h["Time"] = df_24h["DateTime"].dt.strftime("%H:%M")
+        st.dataframe(df_24h[["Date", "Time", "Temperature"]])
 
         # ---------------------- Statistical Summary ----------------------
-        feature_names = [
-            "Maximum (max)", "Minimum (min)", "Average (mean)", "Standard Deviation (std)",
-            "Slope", "Max - Min", "Max of Last 8 Hours", "Last 8h Max - Overall Max"
-        ]
         st.subheader("📊 Statistical Summary (Last 24h)")
         st.table(pd.DataFrame({
             "Feature": feature_names,
@@ -180,11 +183,11 @@ if not df.empty:
         ax.set_ylabel("Temperature (°C)")
         ax.grid(True)
         ax.legend()
-        plt.xticks(rotation=45, ha='left')  # counterclockwise 45°
         st.pyplot(fig)
 
-else: 
+else:
     st.info("⬆️ Please upload a CSV file or fill in temperatures manually to begin analysis.")
+
 
 
 
